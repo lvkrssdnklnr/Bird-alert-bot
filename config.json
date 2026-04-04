@@ -1,9 +1,10 @@
 {
   "latitude": 48.134,
   "longitude": 11.571,
-  "radius_km": 25,
+  "radius_km": 37,
   "target_species": [
-    "blutit"
+    "blutit",
+    "eurrob1"
   ],
   "lookback_hours": 24
 }
