@@ -306,45 +306,14 @@ function populateForm() {
 // ── Taxonomy ──
 
 async function loadTaxonomy() {
-  // Check sessionStorage cache first
-  const cached = sessionStorage.getItem('bird_taxonomy_de_v2');
-  if (cached) {
-    state.taxonomy = JSON.parse(cached);
-    document.getElementById('taxonomy-status').textContent = `${state.taxonomy.length} Arten geladen`;
-    return;
-  }
-
   document.getElementById('taxonomy-status').textContent = 'Artenliste wird geladen...';
   try {
-    // Step 1: Get species codes for Germany (small, fast ~500 codes)
-    const sppRes = await fetch('https://api.ebird.org/v2/product/spplist/DE');
-    if (!sppRes.ok) throw new Error('Artenliste konnte nicht geladen werden');
-    const codes = await sppRes.json();
-
-    // Step 2: Get German names for these codes in batches
-    const batchSize = 200;
-    state.taxonomy = [];
-    for (let i = 0; i < codes.length; i += batchSize) {
-      const batch = codes.slice(i, i + batchSize).join(',');
-      const res = await fetch(`https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=json&locale=de&species=${batch}`);
-      if (res.ok) {
-        const data = await res.json();
-        for (const s of data) {
-          state.taxonomy.push({
-            code: s.speciesCode,
-            de: s.comName,
-            en: s.comNameEN || '',
-            sci: s.sciName || ''
-          });
-        }
-      }
-      document.getElementById('taxonomy-status').textContent = `Lade... ${Math.min(i + batchSize, codes.length)}/${codes.length}`;
-    }
-
-    sessionStorage.setItem('bird_taxonomy_de_v2', JSON.stringify(state.taxonomy));
-    document.getElementById('taxonomy-status').textContent = `${state.taxonomy.length} Arten geladen`;
+    const res = await fetch('species_de.json');
+    if (!res.ok) throw new Error('species_de.json nicht gefunden');
+    state.taxonomy = await res.json();
+    document.getElementById('taxonomy-status').textContent = `${state.taxonomy.length} Arten verfuegbar`;
   } catch (e) {
-    document.getElementById('taxonomy-status').textContent = 'Artenliste konnte nicht geladen werden. Du kannst eBird-Codes direkt eingeben.';
+    document.getElementById('taxonomy-status').textContent = 'Artenliste konnte nicht geladen werden.';
   }
 }
 
@@ -359,7 +328,7 @@ async function resolveSpeciesNames(codes) {
   if (state.taxonomy) {
     for (const t of state.taxonomy) {
       if (unknown.includes(t.code)) {
-        state.speciesNames[t.code] = { de: t.de, en: t.en, sci: t.sci };
+        state.speciesNames[t.code] = { de: t.de, sci: t.sci };
       }
     }
   }
@@ -373,7 +342,7 @@ async function resolveSpeciesNames(codes) {
     if (res.ok) {
       const data = await res.json();
       for (const s of data) {
-        state.speciesNames[s.speciesCode] = { de: s.comName, en: s.comNameEN || '', sci: s.sciName || '' };
+        state.speciesNames[s.speciesCode] = { de: s.comName, sci: s.sciName || '' };
       }
     }
   } catch (e) { /* ignore */ }
@@ -398,7 +367,7 @@ function addSpeciesByCode(code) {
   // Fill name from taxonomy if available
   if (state.taxonomy) {
     const found = state.taxonomy.find(t => t.code === code);
-    if (found) state.speciesNames[code] = { de: found.de, en: found.en, sci: found.sci };
+    if (found) state.speciesNames[code] = { de: found.de, sci: found.sci };
   }
   renderSpecies();
   document.getElementById('species-input').value = '';
@@ -435,7 +404,7 @@ function showSuggestions(query) {
 
   const words = query.split(/\s+/);
   const results = state.taxonomy.filter(t => {
-    const haystack = `${t.de} ${t.en} ${t.sci} ${t.code}`.toLowerCase();
+    const haystack = `${t.de} ${t.sci} ${t.code}`.toLowerCase();
     return words.every(w => haystack.includes(w));
   }).slice(0, 15);
 
