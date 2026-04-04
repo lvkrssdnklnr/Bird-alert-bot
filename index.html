@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bird Alert Config</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #2d3436; line-height: 1.5; }
+    header { background: #2d3436; color: #fff; padding: 16px 20px; text-align: center; position: sticky; top: 0; z-index: 1000; }
+    header h1 { font-size: 1.3rem; }
+    .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .card h2 { font-size: 1rem; color: #636e72; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.9rem; }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 10px 12px; border: 2px solid #dfe6e9; border-radius: 8px; font-size: 1rem; transition: border-color 0.2s; }
+    input:focus, select:focus { outline: none; border-color: #00b894; }
+    button { cursor: pointer; border: none; border-radius: 8px; padding: 10px 20px; font-size: 1rem; font-weight: 600; transition: opacity 0.2s; }
+    button:active { opacity: 0.8; }
+    .btn-primary { background: #00b894; color: #fff; width: 100%; padding: 14px; font-size: 1.1rem; }
+    .btn-small { background: #dfe6e9; color: #2d3436; padding: 6px 14px; font-size: 0.85rem; }
+    .btn-danger { background: #d63031; color: #fff; }
+    .btn-geo { background: #0984e3; color: #fff; margin-top: 8px; width: 100%; }
+
+    /* Auth */
+    .auth-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .auth-bar input { flex: 1; min-width: 200px; }
+    .auth-status { font-size: 0.85rem; width: 100%; margin-top: 4px; }
+    .auth-status.ok { color: #00b894; }
+    .auth-status.err { color: #d63031; }
+
+    /* Species chips */
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; background: #dfe6e9; border-radius: 20px; padding: 6px 12px; font-size: 0.9rem; }
+    .chip code { font-weight: 600; }
+    .chip .remove { cursor: pointer; color: #d63031; font-weight: bold; font-size: 1.1rem; line-height: 1; }
+    .species-add { display: flex; gap: 8px; }
+    .species-add input { flex: 1; }
+
+    /* Range */
+    input[type="range"] { width: 100%; margin: 8px 0; accent-color: #00b894; }
+    .range-value { text-align: center; font-size: 1.5rem; font-weight: 700; color: #00b894; }
+
+    /* Map */
+    #map { height: 300px; border-radius: 8px; margin-bottom: 12px; }
+    .coords { display: flex; gap: 8px; }
+    .coords > div { flex: 1; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 8px; color: #fff; font-weight: 600; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #00b894; }
+    .toast.error { background: #d63031; }
+
+    /* Loading overlay */
+    .loading { position: fixed; inset: 0; background: rgba(255,255,255,0.8); display: flex; align-items: center; justify-content: center; z-index: 9998; }
+    .loading.hidden { display: none; }
+    .spinner { width: 40px; height: 40px; border: 4px solid #dfe6e9; border-top-color: #00b894; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hint { font-size: 0.8rem; color: #636e72; margin-top: 4px; }
+    .row { display: flex; gap: 12px; margin-bottom: 12px; }
+    .row > div { flex: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F426; Bird Alert Config</h1>
+</header>
+
+<div class="container">
+
+  <!-- Auth -->
+  <div class="card">
+    <h2>GitHub Verbindung</h2>
+    <div class="auth-bar">
+      <input type="password" id="token" placeholder="GitHub Personal Access Token">
+      <button class="btn-small" id="btn-connect" onclick="connect()">Verbinden</button>
+      <button class="btn-small btn-danger" id="btn-disconnect" onclick="disconnect()" style="display:none">Trennen</button>
+    </div>
+    <div class="auth-status" id="auth-status"></div>
+    <p class="hint">Token braucht <b>repo</b> + <b>workflow</b> Scope. Wird nur lokal in deinem Browser gespeichert.</p>
+  </div>
+
+  <!-- Species -->
+  <div class="card">
+    <h2>Zielarten</h2>
+    <div class="chips" id="species-chips"></div>
+    <div class="species-add">
+      <input type="text" id="species-input" placeholder="eBird Species Code (z.B. comkin1)">
+      <button class="btn-small" onclick="addSpecies()">+</button>
+    </div>
+    <p class="hint">Species Codes findest du auf <a href="https://ebird.org/species" target="_blank">ebird.org/species</a></p>
+  </div>
+
+  <!-- Location -->
+  <div class="card">
+    <h2>Standort</h2>
+    <div id="map"></div>
+    <div class="coords">
+      <div>
+        <label>Breitengrad</label>
+        <input type="number" id="lat" step="0.001" onchange="updateMapFromInputs()">
+      </div>
+      <div>
+        <label>Laengengrad</label>
+        <input type="number" id="lng" step="0.001" onchange="updateMapFromInputs()">
+      </div>
+    </div>
+    <button class="btn-geo" onclick="useMyLocation()">&#x1F4CD; Meinen Standort verwenden</button>
+  </div>
+
+  <!-- Radius -->
+  <div class="card">
+    <h2>Radius</h2>
+    <div class="range-value" id="radius-display">25 km</div>
+    <input type="range" id="radius" min="1" max="50" value="25" oninput="updateRadius()">
+  </div>
+
+  <!-- Frequency -->
+  <div class="card">
+    <h2>Abfrageintervall</h2>
+    <select id="frequency">
+      <option value="*/10 * * * *">Alle 10 Minuten</option>
+      <option value="*/30 * * * *">Alle 30 Minuten</option>
+      <option value="0 * * * *">Jede Stunde</option>
+      <option value="0 */6 * * *">Alle 6 Stunden</option>
+      <option value="0 */12 * * *">Alle 12 Stunden</option>
+      <option value="0 0 * * *">Taeglich (Mitternacht UTC)</option>
+    </select>
+  </div>
+
+  <!-- Lookback -->
+  <div class="card">
+    <h2>Zeitfenster</h2>
+    <label>Sichtungen der letzten</label>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="number" id="lookback" min="1" max="720" value="24" style="width:100px">
+      <span>Stunden</span>
+    </div>
+  </div>
+
+  <!-- Save -->
+  <button class="btn-primary" onclick="saveAll()">&#x1F4BE; Konfiguration speichern</button>
+  <div style="height:40px"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="loading hidden" id="loading"><div class="spinner"></div></div>
+
+<script>
+const OWNER = 'lvkrssdnklnr';
+const REPO = 'Bird-alert-bot';
+const API = 'https://api.github.com';
+
+let state = {
+  config: null,
+  configSha: null,
+  workflowYaml: null,
+  workflowSha: null,
+  speciesNames: {},
+  species: []
+};
+
+let map, marker, circle;
+
+// ── Auth ──
+
+function getToken() {
+  return localStorage.getItem('bird_alert_token') || '';
+}
+
+function headers() {
+  return {
+    'Authorization': `token ${getToken()}`,
+    'Accept': 'application/vnd.github.v3+json'
+  };
+}
+
+async function connect() {
+  const token = document.getElementById('token').value.trim();
+  if (!token) return;
+  localStorage.setItem('bird_alert_token', token);
+  try {
+    const res = await fetch(`${API}/user`, { headers: { 'Authorization': `token ${token}` } });
+    if (!res.ok) throw new Error('Ungültiger Token');
+    const user = await res.json();
+    showAuthOk(user.login);
+    loadAll();
+  } catch (e) {
+    localStorage.removeItem('bird_alert_token');
+    showAuthErr(e.message);
+  }
+}
+
+function disconnect() {
+  localStorage.removeItem('bird_alert_token');
+  document.getElementById('token').value = '';
+  document.getElementById('auth-status').textContent = '';
+  document.getElementById('auth-status').className = 'auth-status';
+  document.getElementById('btn-connect').style.display = '';
+  document.getElementById('btn-disconnect').style.display = 'none';
+}
+
+function showAuthOk(login) {
+  const s = document.getElementById('auth-status');
+  s.textContent = `Verbunden als ${login}`;
+  s.className = 'auth-status ok';
+  document.getElementById('btn-connect').style.display = 'none';
+  document.getElementById('btn-disconnect').style.display = '';
+  document.getElementById('token').value = '';
+}
+
+function showAuthErr(msg) {
+  const s = document.getElementById('auth-status');
+  s.textContent = msg;
+  s.className = 'auth-status err';
+  document.getElementById('btn-connect').style.display = '';
+  document.getElementById('btn-disconnect').style.display = 'none';
+}
+
+// ── GitHub API ──
+
+async function ghGet(path) {
+  const res = await fetch(`${API}/repos/${OWNER}/${REPO}/contents/${path}`, { headers: headers() });
+  if (!res.ok) throw new Error(`Fehler beim Laden: ${path} (${res.status})`);
+  const data = await res.json();
+  const content = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))));
+  return { content, sha: data.sha };
+}
+
+async function ghPut(path, content, sha, message) {
+  const encoded = btoa(unescape(encodeURIComponent(content)));
+  const res = await fetch(`${API}/repos/${OWNER}/${REPO}/contents/${path}`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ message, content: encoded, sha })
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.message || `Fehler beim Speichern: ${path}`);
+  }
+  return res.json();
+}
+
+// ── Load ──
+
+async function loadAll() {
+  showLoading(true);
+  try {
+    const [configData, workflowData] = await Promise.all([
+      ghGet('config.json'),
+      ghGet('.github/workflows/bird_alert.yml')
+    ]);
+
+    state.config = JSON.parse(configData.content);
+    state.configSha = configData.sha;
+    state.workflowYaml = workflowData.content;
+    state.workflowSha = workflowData.sha;
+    state.species = [...state.config.target_species];
+
+    populateForm();
+    await resolveSpeciesNames(state.species);
+    renderSpecies();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  showLoading(false);
+}
+
+function populateForm() {
+  const c = state.config;
+  document.getElementById('lat').value = c.latitude;
+  document.getElementById('lng').value = c.longitude;
+  document.getElementById('radius').value = c.radius_km;
+  document.getElementById('lookback').value = c.lookback_hours || 24;
+  updateRadius();
+  updateMapFromInputs();
+
+  // Parse cron from workflow
+  const cronMatch = state.workflowYaml.match(/cron:\s*"([^"]+)"/);
+  if (cronMatch) {
+    const sel = document.getElementById('frequency');
+    for (const opt of sel.options) {
+      if (opt.value === cronMatch[1]) { opt.selected = true; break; }
+    }
+  }
+}
+
+// ── Species ──
+
+async function resolveSpeciesNames(codes) {
+  if (codes.length === 0) return;
+  const unknown = codes.filter(c => !state.speciesNames[c]);
+  if (unknown.length === 0) return;
+  try {
+    const url = `https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=json&species=${unknown.join(',')}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      for (const s of data) {
+        state.speciesNames[s.speciesCode] = s.comName;
+      }
+    }
+  } catch (e) { /* ignore, just show codes */ }
+}
+
+function renderSpecies() {
+  const container = document.getElementById('species-chips');
+  container.innerHTML = '';
+  for (const code of state.species) {
+    const name = state.speciesNames[code] || '';
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `<code>${code}</code>${name ? ` ${name}` : ''} <span class="remove" onclick="removeSpecies('${code}')">&times;</span>`;
+    container.appendChild(chip);
+  }
+}
+
+async function addSpecies() {
+  const input = document.getElementById('species-input');
+  const code = input.value.trim().toLowerCase();
+  if (!code || state.species.includes(code)) { input.value = ''; return; }
+  state.species.push(code);
+  await resolveSpeciesNames([code]);
+  renderSpecies();
+  input.value = '';
+}
+
+function removeSpecies(code) {
+  state.species = state.species.filter(c => c !== code);
+  renderSpecies();
+}
+
+// ── Map ──
+
+function initMap() {
+  map = L.map('map').setView([48.13, 11.58], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  marker = L.marker([48.13, 11.58], { draggable: true }).addTo(map);
+  circle = L.circle([48.13, 11.58], { radius: 25000, color: '#00b894', fillOpacity: 0.1 }).addTo(map);
+
+  marker.on('dragend', () => {
+    const pos = marker.getLatLng();
+    document.getElementById('lat').value = Math.round(pos.lat * 1000) / 1000;
+    document.getElementById('lng').value = Math.round(pos.lng * 1000) / 1000;
+    circle.setLatLng(pos);
+  });
+}
+
+function updateMapFromInputs() {
+  const lat = parseFloat(document.getElementById('lat').value) || 48.13;
+  const lng = parseFloat(document.getElementById('lng').value) || 11.58;
+  if (marker) {
+    marker.setLatLng([lat, lng]);
+    circle.setLatLng([lat, lng]);
+    map.setView([lat, lng], map.getZoom());
+  }
+}
+
+function updateRadius() {
+  const val = document.getElementById('radius').value;
+  document.getElementById('radius-display').textContent = `${val} km`;
+  if (circle) circle.setRadius(val * 1000);
+}
+
+function useMyLocation() {
+  if (!navigator.geolocation) { toast('Geolocation nicht verfügbar', 'error'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = Math.round(pos.coords.latitude * 1000) / 1000;
+    const lng = Math.round(pos.coords.longitude * 1000) / 1000;
+    document.getElementById('lat').value = lat;
+    document.getElementById('lng').value = lng;
+    updateMapFromInputs();
+  }, () => toast('Standort konnte nicht ermittelt werden', 'error'));
+}
+
+// ── Save ──
+
+async function saveAll() {
+  if (!getToken()) { toast('Bitte zuerst verbinden', 'error'); return; }
+  showLoading(true);
+
+  const newConfig = {
+    latitude: parseFloat(document.getElementById('lat').value),
+    longitude: parseFloat(document.getElementById('lng').value),
+    radius_km: parseInt(document.getElementById('radius').value),
+    target_species: state.species,
+    lookback_hours: parseInt(document.getElementById('lookback').value)
+  };
+
+  const newCron = document.getElementById('frequency').value;
+  const newYaml = state.workflowYaml.replace(/cron:\s*"[^"]*"/, `cron: "${newCron}"`);
+
+  try {
+    const configResult = await ghPut('config.json', JSON.stringify(newConfig, null, 2) + '\n', state.configSha, 'Update bird alert config');
+    state.configSha = configResult.content.sha;
+
+    if (newYaml !== state.workflowYaml) {
+      const wfResult = await ghPut('.github/workflows/bird_alert.yml', newYaml, state.workflowSha, 'Update check frequency');
+      state.workflowSha = wfResult.content.sha;
+      state.workflowYaml = newYaml;
+    }
+
+    toast('Konfiguration gespeichert!', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  showLoading(false);
+}
+
+// ── UI Helpers ──
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show ${type}`;
+  setTimeout(() => el.className = 'toast', 3000);
+}
+
+function showLoading(show) {
+  document.getElementById('loading').className = show ? 'loading' : 'loading hidden';
+}
+
+// ── Init ──
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initMap();
+  document.getElementById('species-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addSpecies();
+  });
+
+  const token = getToken();
+  if (token) {
+    try {
+      const res = await fetch(`${API}/user`, { headers: { 'Authorization': `token ${token}` } });
+      if (res.ok) {
+        const user = await res.json();
+        showAuthOk(user.login);
+        loadAll();
+      } else {
+        disconnect();
+      }
+    } catch (e) { disconnect(); }
+  }
+});
+</script>
+
+</body>
+</html>
