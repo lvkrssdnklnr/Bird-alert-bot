@@ -34,10 +34,21 @@
     /* Species chips */
     .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .chip { display: inline-flex; align-items: center; gap: 6px; background: #dfe6e9; border-radius: 20px; padding: 6px 12px; font-size: 0.9rem; }
-    .chip code { font-weight: 600; }
+    .chip code { font-size: 0.75rem; color: #636e72; }
     .chip .remove { cursor: pointer; color: #d63031; font-weight: bold; font-size: 1.1rem; line-height: 1; }
-    .species-add { display: flex; gap: 8px; }
-    .species-add input { flex: 1; }
+    .species-search { position: relative; }
+    .species-search input { width: 100%; }
+    .autocomplete { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 2px solid #00b894; border-top: none; border-radius: 0 0 8px 8px; max-height: 250px; overflow-y: auto; z-index: 100; display: none; }
+    .autocomplete.open { display: block; }
+    .ac-item { padding: 10px 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f2f5; }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover, .ac-item.active { background: #dfe6e9; }
+    .ac-item .ac-name { font-weight: 600; }
+    .ac-item .ac-sci { font-size: 0.8rem; color: #636e72; font-style: italic; }
+    .ac-item .ac-code { font-size: 0.75rem; color: #b2bec3; }
+    .taxonomy-status { font-size: 0.8rem; color: #636e72; margin-top: 6px; }
+    .ac-item.already { opacity: 0.5; }
+    .ac-item mark { background: #ffeaa7; border-radius: 2px; padding: 0 1px; }
 
     /* Range */
     input[type="range"] { width: 100%; margin: 8px 0; accent-color: #00b894; }
@@ -89,11 +100,11 @@
   <div class="card">
     <h2>Zielarten</h2>
     <div class="chips" id="species-chips"></div>
-    <div class="species-add">
-      <input type="text" id="species-input" placeholder="eBird Species Code (z.B. comkin1)">
-      <button class="btn-small" onclick="addSpecies()">+</button>
+    <div class="species-search">
+      <input type="text" id="species-input" placeholder="Art suchen (z.B. Eisvogel, Amsel, Rotkehlchen...)" autocomplete="off">
+      <div class="autocomplete" id="autocomplete"></div>
     </div>
-    <p class="hint">Species Codes findest du auf <a href="https://ebird.org/species" target="_blank">ebird.org/species</a></p>
+    <div class="taxonomy-status" id="taxonomy-status"></div>
   </div>
 
   <!-- Location -->
@@ -161,8 +172,10 @@ let state = {
   configSha: null,
   workflowYaml: null,
   workflowSha: null,
-  speciesNames: {},
-  species: []
+  speciesNames: {},    // code -> { de: 'Eisvogel', en: 'Common Kingfisher', sci: 'Alcedo atthis' }
+  species: [],
+  taxonomy: null,      // full taxonomy array (cached)
+  acIndex: -1          // autocomplete keyboard selection
 };
 
 let map, marker, circle;
@@ -290,49 +303,188 @@ function populateForm() {
   }
 }
 
+// ── Taxonomy ──
+
+async function loadTaxonomy() {
+  // Check sessionStorage cache first
+  const cached = sessionStorage.getItem('bird_taxonomy_de');
+  if (cached) {
+    state.taxonomy = JSON.parse(cached);
+    document.getElementById('taxonomy-status').textContent = `${state.taxonomy.length} Arten geladen`;
+    return;
+  }
+
+  document.getElementById('taxonomy-status').textContent = 'Artenliste wird geladen...';
+  try {
+    const res = await fetch('https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=json&locale=de&cat=species');
+    if (!res.ok) throw new Error('Taxonomy konnte nicht geladen werden');
+    const data = await res.json();
+    // Store only what we need to save memory
+    state.taxonomy = data.map(s => ({
+      code: s.speciesCode,
+      de: s.comName,
+      en: s.comNameEN || '',
+      sci: s.sciName || ''
+    }));
+    sessionStorage.setItem('bird_taxonomy_de', JSON.stringify(state.taxonomy));
+    document.getElementById('taxonomy-status').textContent = `${state.taxonomy.length} Arten geladen`;
+  } catch (e) {
+    document.getElementById('taxonomy-status').textContent = 'Artenliste konnte nicht geladen werden. Manuelle Code-Eingabe moeglich.';
+  }
+}
+
 // ── Species ──
 
 async function resolveSpeciesNames(codes) {
   if (codes.length === 0) return;
   const unknown = codes.filter(c => !state.speciesNames[c]);
   if (unknown.length === 0) return;
+
+  // Try from loaded taxonomy first
+  if (state.taxonomy) {
+    for (const t of state.taxonomy) {
+      if (unknown.includes(t.code)) {
+        state.speciesNames[t.code] = { de: t.de, en: t.en, sci: t.sci };
+      }
+    }
+  }
+
+  // Fetch remaining from API
+  const still = unknown.filter(c => !state.speciesNames[c]);
+  if (still.length === 0) return;
   try {
-    const url = `https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=json&species=${unknown.join(',')}`;
+    const url = `https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=json&locale=de&species=${still.join(',')}`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       for (const s of data) {
-        state.speciesNames[s.speciesCode] = s.comName;
+        state.speciesNames[s.speciesCode] = { de: s.comName, en: s.comNameEN || '', sci: s.sciName || '' };
       }
     }
-  } catch (e) { /* ignore, just show codes */ }
+  } catch (e) { /* ignore */ }
 }
 
 function renderSpecies() {
   const container = document.getElementById('species-chips');
   container.innerHTML = '';
   for (const code of state.species) {
-    const name = state.speciesNames[code] || '';
+    const info = state.speciesNames[code];
+    const label = info ? info.de : code;
     const chip = document.createElement('div');
     chip.className = 'chip';
-    chip.innerHTML = `<code>${code}</code>${name ? ` ${name}` : ''} <span class="remove" onclick="removeSpecies('${code}')">&times;</span>`;
+    chip.innerHTML = `${label} <code>${code}</code> <span class="remove" onclick="removeSpecies('${code}')">&times;</span>`;
     container.appendChild(chip);
   }
 }
 
-async function addSpecies() {
-  const input = document.getElementById('species-input');
-  const code = input.value.trim().toLowerCase();
-  if (!code || state.species.includes(code)) { input.value = ''; return; }
+function addSpeciesByCode(code) {
+  if (!code || state.species.includes(code)) return;
   state.species.push(code);
-  await resolveSpeciesNames([code]);
+  // Fill name from taxonomy if available
+  if (state.taxonomy) {
+    const found = state.taxonomy.find(t => t.code === code);
+    if (found) state.speciesNames[code] = { de: found.de, en: found.en, sci: found.sci };
+  }
   renderSpecies();
-  input.value = '';
+  document.getElementById('species-input').value = '';
+  closeAutocomplete();
 }
 
 function removeSpecies(code) {
   state.species = state.species.filter(c => c !== code);
   renderSpecies();
+}
+
+// ── Autocomplete ──
+
+let acDebounce = null;
+
+function onSpeciesInput(e) {
+  const query = e.target.value.trim().toLowerCase();
+  clearTimeout(acDebounce);
+  state.acIndex = -1;
+
+  if (query.length < 2) { closeAutocomplete(); return; }
+
+  acDebounce = setTimeout(() => showSuggestions(query), 150);
+}
+
+function showSuggestions(query) {
+  const ac = document.getElementById('autocomplete');
+
+  if (!state.taxonomy) {
+    ac.innerHTML = '<div class="ac-item"><span class="ac-name">Artenliste wird geladen...</span></div>';
+    ac.classList.add('open');
+    return;
+  }
+
+  const words = query.split(/\s+/);
+  const results = state.taxonomy.filter(t => {
+    const haystack = `${t.de} ${t.en} ${t.sci} ${t.code}`.toLowerCase();
+    return words.every(w => haystack.includes(w));
+  }).slice(0, 15);
+
+  if (results.length === 0) {
+    ac.innerHTML = '<div class="ac-item"><span class="ac-name">Keine Treffer</span></div>';
+    ac.classList.add('open');
+    return;
+  }
+
+  ac.innerHTML = results.map((r, i) => {
+    const already = state.species.includes(r.code);
+    return `<div class="ac-item${already ? ' already' : ''}" data-code="${r.code}" onclick="addSpeciesByCode('${r.code}')">
+      <div>
+        <div class="ac-name">${highlight(r.de, words)}${already ? ' &#x2713;' : ''}</div>
+        <div class="ac-sci">${r.sci}</div>
+      </div>
+      <div class="ac-code">${r.code}</div>
+    </div>`;
+  }).join('');
+  ac.classList.add('open');
+}
+
+function highlight(text, words) {
+  let result = text;
+  for (const w of words) {
+    const idx = result.toLowerCase().indexOf(w);
+    if (idx >= 0) {
+      result = result.slice(0, idx) + '<mark>' + result.slice(idx, idx + w.length) + '</mark>' + result.slice(idx + w.length);
+    }
+  }
+  return result;
+}
+
+function closeAutocomplete() {
+  document.getElementById('autocomplete').classList.remove('open');
+  state.acIndex = -1;
+}
+
+function onSpeciesKeydown(e) {
+  const ac = document.getElementById('autocomplete');
+  const items = ac.querySelectorAll('.ac-item[data-code]');
+  if (!items.length) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    state.acIndex = Math.min(state.acIndex + 1, items.length - 1);
+    updateAcHighlight(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    state.acIndex = Math.max(state.acIndex - 1, 0);
+    updateAcHighlight(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (state.acIndex >= 0 && items[state.acIndex]) {
+      addSpeciesByCode(items[state.acIndex].dataset.code);
+    }
+  } else if (e.key === 'Escape') {
+    closeAutocomplete();
+  }
+}
+
+function updateAcHighlight(items) {
+  items.forEach((el, i) => el.classList.toggle('active', i === state.acIndex));
+  if (items[state.acIndex]) items[state.acIndex].scrollIntoView({ block: 'nearest' });
 }
 
 // ── Map ──
@@ -432,9 +584,16 @@ function showLoading(show) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   initMap();
-  document.getElementById('species-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') addSpecies();
+
+  const speciesInput = document.getElementById('species-input');
+  speciesInput.addEventListener('input', onSpeciesInput);
+  speciesInput.addEventListener('keydown', onSpeciesKeydown);
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.species-search')) closeAutocomplete();
   });
+
+  // Load taxonomy in background
+  loadTaxonomy();
 
   const token = getToken();
   if (token) {
