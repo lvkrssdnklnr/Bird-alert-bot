@@ -25,7 +25,7 @@ jobs:
         env:
           EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bird_alert.py
 
       - name: Commit seen.json
