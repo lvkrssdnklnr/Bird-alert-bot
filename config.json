@@ -2,6 +2,8 @@
   "latitude": 48.13,
   "longitude": 11.58,
   "radius_km": 25,
-  "target_species": ["comkin1", "eurjay"],
+  "target_species": [
+    "blutit"
+  ],
   "lookback_hours": 24
 }
