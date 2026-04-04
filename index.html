@@ -309,12 +309,20 @@ async function loadTaxonomy() {
   const statusEl = document.getElementById('taxonomy-status');
   statusEl.textContent = 'Artenliste wird geladen...';
   try {
-    // Try relative path first, then absolute GitHub raw URL as fallback
-    let res = await fetch('./species_de.json');
-    if (!res.ok) {
-      res = await fetch(`https://raw.githubusercontent.com/${OWNER}/${REPO}/main/species_de.json`);
+    // Try multiple sources: relative, jsDelivr CDN, GitHub raw
+    const urls = [
+      './species_de.json',
+      `https://cdn.jsdelivr.net/gh/${OWNER}/${REPO}@main/species_de.json`,
+      `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/species_de.json`
+    ];
+    let res;
+    for (const url of urls) {
+      try {
+        res = await fetch(url);
+        if (res.ok) break;
+      } catch (e) { continue; }
     }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res || !res.ok) throw new Error('Alle Quellen fehlgeschlagen');
     state.taxonomy = await res.json();
     statusEl.textContent = `${state.taxonomy.length} Arten verfuegbar`;
   } catch (e) {
