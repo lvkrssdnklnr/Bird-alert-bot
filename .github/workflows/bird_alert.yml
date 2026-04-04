@@ -2,7 +2,7 @@ name: Bird Alert
 
 on:
   schedule:
-    - cron: "*/10 * * * *"  # every 10 minutes
+    - cron: "0 * * * *"  # every 10 minutes
   workflow_dispatch:         # manual trigger
 
 permissions:
