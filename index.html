@@ -306,14 +306,19 @@ function populateForm() {
 // ── Taxonomy ──
 
 async function loadTaxonomy() {
-  document.getElementById('taxonomy-status').textContent = 'Artenliste wird geladen...';
+  const statusEl = document.getElementById('taxonomy-status');
+  statusEl.textContent = 'Artenliste wird geladen...';
   try {
-    const res = await fetch('species_de.json');
-    if (!res.ok) throw new Error('species_de.json nicht gefunden');
+    // Try relative path first, then absolute GitHub raw URL as fallback
+    let res = await fetch('./species_de.json');
+    if (!res.ok) {
+      res = await fetch(`https://raw.githubusercontent.com/${OWNER}/${REPO}/main/species_de.json`);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.taxonomy = await res.json();
-    document.getElementById('taxonomy-status').textContent = `${state.taxonomy.length} Arten verfuegbar`;
+    statusEl.textContent = `${state.taxonomy.length} Arten verfuegbar`;
   } catch (e) {
-    document.getElementById('taxonomy-status').textContent = 'Artenliste konnte nicht geladen werden.';
+    statusEl.textContent = `Fehler beim Laden: ${e.message}`;
   }
 }
 
