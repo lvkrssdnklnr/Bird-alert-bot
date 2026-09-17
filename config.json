@@ -3,12 +3,10 @@
   "longitude": 11.571,
   "radius_km": 50,
   "target_species": [
-    "loeowl",
-    "tawowl1",
-    "sheowl",
     "borowl",
     "litowl1",
-    "eubeat1"
+    "eubeat1",
+    "comkin1"
   ],
   "lookback_hours": 24
 }
